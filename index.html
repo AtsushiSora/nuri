@@ -11,7 +11,29 @@
 
 <input type="color" id="colorPicker" value="#ff0000">
 
+<!-- パレット -->
+<div id="palette">
+  <div class="color selected" data-color="#ff0000" style="background:#ff0000;"></div>
+  <div class="color" data-color="#00ff00" style="background:#00ff00;"></div>
+  <div class="color" data-color="#0000ff" style="background:#0000ff;"></div>
+  <div class="color" data-color="#ffff00" style="background:#ffff00;"></div>
+  <div class="color" data-color="#ff00ff" style="background:#ff00ff;"></div>
+  <div class="color" data-color="#00ffff" style="background:#00ffff;"></div>
+</div>
+
+<br>
+
+<button onclick="undo()">元に戻す</button>
+<button onclick="saveImage()">保存</button>
+
 <br><br>
+
+<!-- ステージ操作 -->
+<div>
+  <button onclick="prevImage()">← 前へ</button>
+  <span id="stageText"></span>
+  <button onclick="nextImage()">次へ →</button>
+</div>
 
 <canvas id="canvas"></canvas>
 
