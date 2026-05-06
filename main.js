@@ -6,7 +6,7 @@ const colorPicker = document.getElementById("colorPicker");
 // ステージ自動生成
 // =====================
 const images = [];
-const maxImages = 20; // ← 増やせばOK
+const maxImages = 20;
 
 for (let i = 1; i <= maxImages; i++) {
   images.push(`images/coloring${i}.png`);
@@ -30,7 +30,7 @@ function loadImage() {
   };
 
   img.onerror = function () {
-    nextImage(); // 無い画像はスキップ
+    nextImage();
   };
 }
 
@@ -80,6 +80,28 @@ function saveImage() {
 }
 
 // =====================
+// シェア（スマホ）
+// =====================
+async function shareImage() {
+  const dataUrl = canvas.toDataURL("image/png");
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const file = new File([blob], "nuri.png", { type: "image/png" });
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: "塗り絵できた！",
+        text: "塗り絵アプリで作ったよ 🎨",
+      });
+    } catch (e) {}
+  } else {
+    alert("シェア未対応です");
+  }
+}
+
+// =====================
 // 色変換
 // =====================
 function hexToRgba(hex) {
@@ -104,21 +126,17 @@ document.querySelectorAll(".color").forEach(el => {
 });
 
 // =====================
-// イベント
+// イベント（ズレ修正済）
 // =====================
 canvas.addEventListener("click", handleFill);
 
 canvas.addEventListener("touchstart", (e) => {
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
   const t = e.touches[0];
 
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-
   handleFill({
-    x: (t.clientX - rect.left) * scaleX,
-    y: (t.clientY - rect.top) * scaleY
+    clientX: t.clientX,
+    clientY: t.clientY
   });
 });
 
@@ -135,11 +153,8 @@ function handleFill(e) {
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
 
-  const clientX = e.x ?? e.clientX;
-  const clientY = e.y ?? e.clientY;
-
-  const x = Math.floor((clientX - rect.left) * scaleX);
-  const y = Math.floor((clientY - rect.top) * scaleY);
+  const x = Math.floor((e.clientX - rect.left) * scaleX);
+  const y = Math.floor((e.clientY - rect.top) * scaleY);
 
   saveState();
 
