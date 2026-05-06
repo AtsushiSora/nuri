@@ -2,16 +2,86 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const colorPicker = document.getElementById("colorPicker");
 
-const img = new Image();
-img.src = "images/coloring.png";
+// =====================
+// ステージ自動生成
+// =====================
+const images = [];
+const maxImages = 20; // ← 増やせばOK
 
-img.onload = function () {
-  canvas.width = img.width;
-  canvas.height = img.height;
-  ctx.drawImage(img, 0, 0);
-};
+for (let i = 1; i <= maxImages; i++) {
+  images.push(`images/coloring${i}.png`);
+}
 
-// HEX → RGBA
+let currentIndex = 0;
+
+// =====================
+// 画像読み込み
+// =====================
+function loadImage() {
+  const img = new Image();
+  img.src = images[currentIndex];
+
+  img.onload = function () {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+    history = [];
+    updateStageText();
+  };
+
+  img.onerror = function () {
+    nextImage(); // 無い画像はスキップ
+  };
+}
+
+// =====================
+// ステージ操作
+// =====================
+function nextImage() {
+  currentIndex++;
+  if (currentIndex >= images.length) currentIndex = 0;
+  loadImage();
+}
+
+function prevImage() {
+  currentIndex--;
+  if (currentIndex < 0) currentIndex = images.length - 1;
+  loadImage();
+}
+
+function updateStageText() {
+  document.getElementById("stageText").textContent =
+    "ステージ " + (currentIndex + 1);
+}
+
+// =====================
+// Undo
+// =====================
+let history = [];
+
+function saveState() {
+  history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+  if (history.length > 20) history.shift();
+}
+
+function undo() {
+  if (history.length === 0) return;
+  ctx.putImageData(history.pop(), 0, 0);
+}
+
+// =====================
+// 保存
+// =====================
+function saveImage() {
+  const link = document.createElement("a");
+  link.download = "coloring.png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+// =====================
+// 色変換
+// =====================
 function hexToRgba(hex) {
   const bigint = parseInt(hex.slice(1), 16);
   return [
@@ -22,107 +92,128 @@ function hexToRgba(hex) {
   ];
 }
 
-// スマホ対応（タップ）
+// =====================
+// パレット
+// =====================
+document.querySelectorAll(".color").forEach(el => {
+  el.addEventListener("click", () => {
+    document.querySelectorAll(".color").forEach(c => c.classList.remove("selected"));
+    el.classList.add("selected");
+    colorPicker.value = el.dataset.color;
+  });
+});
+
+// =====================
+// イベント
+// =====================
 canvas.addEventListener("click", handleFill);
+
 canvas.addEventListener("touchstart", (e) => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
-  const touch = e.touches[0];
-  const x = Math.floor(touch.clientX - rect.left);
-  const y = Math.floor(touch.clientY - rect.top);
-  handleFill({ x, y });
+  const t = e.touches[0];
+
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  handleFill({
+    x: (t.clientX - rect.left) * scaleX,
+    y: (t.clientY - rect.top) * scaleY
+  });
 });
 
-function handleFill(e) {
-  let x, y;
+canvas.addEventListener("touchmove", (e) => {
+  e.preventDefault();
+}, { passive: false });
 
-  if (e.x !== undefined) {
-    x = e.x;
-    y = e.y;
-  } else {
-    const rect = canvas.getBoundingClientRect();
-    x = Math.floor(e.clientX - rect.left);
-    y = Math.floor(e.clientY - rect.top);
-  }
+// =====================
+// 塗り
+// =====================
+function handleFill(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  const clientX = e.x ?? e.clientX;
+  const clientY = e.y ?? e.clientY;
+
+  const x = Math.floor((clientX - rect.left) * scaleX);
+  const y = Math.floor((clientY - rect.top) * scaleY);
+
+  saveState();
 
   const fillColor = hexToRgba(colorPicker.value);
   floodFill(x, y, fillColor);
 }
 
+// =====================
+// FloodFill
+// =====================
 function floodFill(x, y, fillColor) {
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
 
   const targetColor = getColorAtPixel(data, x, y);
-
   if (colorsMatch(targetColor, fillColor)) return;
 
   const stack = [[x, y]];
-  const tolerance = 50; // ← 調整ポイント
+  const visited = new Uint8Array(canvas.width * canvas.height);
+
+  const tolerance = 45;
+  const blackThreshold = 80;
 
   while (stack.length > 0) {
     const [px, py] = stack.pop();
-    const index = (py * canvas.width + px) * 4;
 
-    const current = [
-      data[index],
-      data[index + 1],
-      data[index + 2],
-      data[index + 3]
-    ];
+    if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
 
-    // 黒線は塗らない（壁）
-    if (isBlack(current)) continue;
+    const idx = py * canvas.width + px;
+    if (visited[idx]) continue;
+    visited[idx] = 1;
 
-    // 色が近くないならスキップ
-    if (!colorsClose(current, targetColor, tolerance)) continue;
+    const i = idx * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
 
-    // 塗る
-    data[index] = fillColor[0];
-    data[index + 1] = fillColor[1];
-    data[index + 2] = fillColor[2];
-    data[index + 3] = fillColor[3];
+    if (r < blackThreshold && g < blackThreshold && b < blackThreshold) continue;
 
-    // 上下左右
-    if (px > 0) stack.push([px - 1, py]);
-    if (px < canvas.width - 1) stack.push([px + 1, py]);
-    if (py > 0) stack.push([px, py - 1]);
-    if (py < canvas.height - 1) stack.push([px, py + 1]);
+    if (!colorsClose([r, g, b], targetColor, tolerance)) continue;
+
+    data[i] = fillColor[0];
+    data[i + 1] = fillColor[1];
+    data[i + 2] = fillColor[2];
+    data[i + 3] = fillColor[3];
+
+    stack.push([px - 1, py]);
+    stack.push([px + 1, py]);
+    stack.push([px, py - 1]);
+    stack.push([px, py + 1]);
   }
 
   ctx.putImageData(imageData, 0, 0);
 }
 
+// =====================
+// 補助
+// =====================
 function getColorAtPixel(data, x, y) {
-  const index = (y * canvas.width + x) * 4;
-  return [
-    data[index],
-    data[index + 1],
-    data[index + 2],
-    data[index + 3]
-  ];
+  const i = (y * canvas.width + x) * 4;
+  return [data[i], data[i + 1], data[i + 2], data[i + 3]];
 }
 
-// 色の近さ判定
-function colorsClose(a, b, tolerance) {
+function colorsClose(a, b, t) {
   return (
-    Math.abs(a[0] - b[0]) < tolerance &&
-    Math.abs(a[1] - b[1]) < tolerance &&
-    Math.abs(a[2] - b[2]) < tolerance
+    Math.abs(a[0] - b[0]) < t &&
+    Math.abs(a[1] - b[1]) < t &&
+    Math.abs(a[2] - b[2]) < t
   );
 }
 
-// 黒判定（線）
-function isBlack(color) {
-  return color[0] < 50 && color[1] < 50 && color[2] < 50;
-}
-
-// 完全一致（初期チェック用）
 function colorsMatch(a, b) {
-  return (
-    a[0] === b[0] &&
-    a[1] === b[1] &&
-    a[2] === b[2] &&
-    a[3] === b[3]
-  );
+  return a.every((v, i) => v === b[i]);
 }
+
+// 初期ロード
+loadImage();
